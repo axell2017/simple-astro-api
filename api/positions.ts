@@ -41,7 +41,6 @@ function degNorm(x: number) { return ((x % 360) + 360) % 360; }
 
 // JD fallback if julday isn’t present
 function juldayFallback(y: number, m: number, d: number, utHours: number) {
-  // Gregorian calendar JD (UT). Source: standard algorithm.
   const a = Math.floor((14 - m) / 12);
   const y2 = y + 4800 - a;
   const m2 = m + 12 * a - 3;
@@ -76,16 +75,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const [y, m, d] = date.split('-').map(Number);
     const [hh, mm, ss = '00'] = time.split(':');
     const h = Number(hh), min = Number(mm), sec = Number(ss);
-    const utHours = h + min / 60 + Number(sec) / 3600;
 
-// Build JD (UT). Some builds require gregflag as 5th arg.
-const utHours = h + min / 60 + Number(sec) / 3600;
-const jd_ut =
-  typeof JULDAY === 'function'
-    ? (JULDAY.length >= 5
-        ? JULDAY(y, m, d, utHours, true)    // gregflag=true for Gregorian calendar
-        : JULDAY(y, m, d, utHours))
-    : juldayFallback(y, m, d, utHours);
+    // Build JD (UT). Some builds require gregflag as 5th arg.
+    const utHours = h + min / 60 + Number(sec) / 3600;
+    const jd_ut =
+      typeof JULDAY === 'function'
+        ? (JULDAY.length >= 5
+            ? JULDAY(y, m, d, utHours, true) // gregflag=true for Gregorian calendar
+            : JULDAY(y, m, d, utHours))
+        : juldayFallback(y, m, d, utHours);
 
     const lat = Number(latStr);
     const lon = Number(lngStr);
@@ -108,7 +106,7 @@ const jd_ut =
     for (const b of bodies) {
       const flags = SE.FLG_SWIEPH | SE.FLG_SPEED;
       const r = CALC_UT(jd_ut, b.id, flags);
-      // Support multiple possible return shapes
+
       const lonDeg =
         (r && typeof r === 'object' && 'longitude' in r) ? (r as any).longitude :
         (Array.isArray(r) ? r[0] : Number(r));
@@ -126,7 +124,7 @@ const jd_ut =
       planets.push({ name: b.name, degree: deg, sign: signName(deg), retro });
     }
 
-    // Houses and angles (support multiple shapes from houses_ex)
+    // Houses and angles
     const houses: Houses = { cusps: [] };
     const hres = HOUSES_EX ? HOUSES_EX(jd_ut, lat, lon, house_system) : null;
 
@@ -156,7 +154,6 @@ const jd_ut =
       mc:  mcRaw != null ? { degree: degNorm(mcRaw),  sign: signName(mcRaw)  } : undefined
     };
 
-    // Assign houses if we have 12 cusps
     if (houses.cusps?.length === 12) {
       for (const p of planets) {
         const deg = p.degree;
