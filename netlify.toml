@@ -2,6 +2,15 @@
   command = "npm run build"
   functions = "dist/functions"
 
+[build.environment]
+  NODE_VERSION = "18"
+  NPM_FLAGS = "--build-from-source"
+
+[functions]
+  node_bundler = "esbuild"
+  external_node_modules = ["sweph"]
+  included_files = ["dist/functions/ephemeris/**"]
+
 [dev]
   autoLaunch = false
 
@@ -11,7 +20,6 @@
   status = 200
 
 [[headers]]
-  # Define which paths this specific [[headers]] block will cover
   for = "/*"
     [headers.values]
     Access-Control-Allow-Origin = "*"
