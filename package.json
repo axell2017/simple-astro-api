@@ -37,3 +37,4 @@
 "postinstall": "npm rebuild sweph --build-from-source",
 "postbuild": "mkdir -p dist/functions/ephemeris && cp -R functions/ephemeris/ dist/functions/ephemeris/ || true"
 }
+}
