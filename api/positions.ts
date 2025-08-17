@@ -1,4 +1,4 @@
-// api/positions.ts - Planets + Houses with robust parsing, validation, and timezone support
+// api/positions.ts - Planets + Houses with robust parsing, validation, timezone, and CORS
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import path from 'path';
 
@@ -37,6 +37,17 @@ type Output = {
   angles?: { asc?: Angle | null; mc?: Angle | null } | null;
   debug?: any;
 };
+
+function cors(req: VercelRequest, res: VercelResponse) {
+  const origin = req.headers.origin || '*';
+  const allowList = (process.env.ALLOW_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
+  const allowOrigin = allowList.length ? (allowList.includes(origin!) ? origin : allowList[0]) : '*';
+
+  res.setHeader('Access-Control-Allow-Origin', allowOrigin);
+  res.setHeader('Vary', 'Origin'); // for caches/CDN
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+}
 
 function signName(deg: number) {
   const signs = ['Aries','Taurus','Gemini','Cancer','Leo','Virgo','Libra','Scorpio','Sagittarius','Capricorn','Aquarius','Pisces'];
@@ -87,6 +98,11 @@ function clampHouseSystem(s: string) {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  cors(req, res);
+  if (req.method === 'OPTIONS') {
+    return res.status(204).send('');
+  }
+
   try {
     // Set ephemeris path (bundled via vercel.json -> functions/ephemeris)
     try {
@@ -232,6 +248,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
       }
     }
+
+    // Light caching: identical requests can be cached briefly by CDN/browsers
+    res.setHeader('Cache-Control', 'public, max-age=60, s-maxage=60');
 
     const out: Output = {
       success: true,
