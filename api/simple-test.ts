@@ -1,4 +1,4 @@
-// api/simple-test.ts - Just planets, no houses
+// api/houses-test.ts - Minimal houses (no planets), fixed date/time, lat/lng via query
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import path from 'path';
 
@@ -6,12 +6,10 @@ import path from 'path';
 const swephMod = require('sweph');
 const sweph: any = swephMod && swephMod.default ? swephMod.default : swephMod;
 
-const CALC_UT = typeof sweph.calc_ut === 'function' ? sweph.calc_ut : sweph.swe_calc_ut;
+const HOUSES_EX = typeof sweph.houses_ex === 'function' ? sweph.houses_ex : sweph.swe_houses_ex;
 const SET_EPHE_PATH = typeof sweph.set_ephe_path === 'function' ? sweph.set_ephe_path : sweph.swe_set_ephe_path;
 
 const SE = {
-  SUN: sweph.SE_SUN ?? 0,
-  MOON: sweph.SE_MOON ?? 1,
   FLG_SWIEPH: sweph.SEFLG_SWIEPH ?? 2
 };
 
@@ -22,64 +20,85 @@ function signName(deg: number) {
 }
 function degNorm(x: number) { return ((x % 360) + 360) % 360; }
 
-// Pure JS Julian Day
+// Pure JS Julian Day (Gregorian calendar)
 function julianDay(y: number, m: number, d: number, utHours: number) {
   const a = Math.floor((14 - m) / 12);
   const y2 = y + 4800 - a;
   const m2 = m + 12 * a - 3;
-  const jd0 = d + Math.floor((153 * m2 + 2) / 5) + 365 * y2 + Math.floor(y2 / 4) - Math.floor(y2 / 100) + Math.floor(y2 / 400) - 32045;
+  const jd0 =
+    d +
+    Math.floor((153 * m2 + 2) / 5) +
+    365 * y2 +
+    Math.floor(y2 / 4) -
+    Math.floor(y2 / 100) +
+    Math.floor(y2 / 400) -
+    32045;
   return jd0 - 0.5 + utHours / 24;
-}
-
-function extractLongitude(r: any): number | null {
-  if (!r) return null;
-
-  // New: handle shape { flag, error, data: [lon, lat, dist, ...] }
-  if (r && typeof r === 'object' && Array.isArray((r as any).data) && Number.isFinite((r as any).data[0])) {
-    return (r as any).data[0] as number;
-  }
-
-  if (typeof r === 'object') {
-    if ('longitude' in r && Number.isFinite((r as any).longitude)) return (r as any).longitude as number;
-    if ('lon' in r && Number.isFinite((r as any).lon)) return (r as any).lon as number;
-  }
-  if (Array.isArray(r) && Number.isFinite(r[0])) return r[0] as number;
-  if (typeof r === 'number' && Number.isFinite(r)) return r;
-  return null;
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
-    // Ensure ephemeris path is set (ephemeris files included via vercel.json)
+    // Set ephemeris path
     try {
       const ephPath = path.join(process.cwd(), 'functions', 'ephemeris');
       if (SET_EPHE_PATH) SET_EPHE_PATH(ephPath);
     } catch {}
 
-    // Fixed test data - no query params needed
-    const jd_ut = julianDay(1992, 9, 8, 12); // Sept 8, 1992, 12:00 UTC
+    // Fixed date/time to keep this simple (same as simple-test)
+    const jd_ut = julianDay(1992, 9, 8, 12); // 1992-09-08 12:00 UT
 
-    // Just get Sun and Moon positions
-    const flags = SE.FLG_SWIEPH;
-    const sunR = CALC_UT(jd_ut, SE.SUN, flags);
-    const moonR = CALC_UT(jd_ut, SE.MOON, flags);
+    // Expect lat/lng in query; optional house system (default 'P')
+    const q = req.query as Record<string, string>;
+    const lat = Number(q.lat);
+    const lon = Number(q.lng);
+    const hsys = (q.hsys || 'P').toUpperCase(); // single char
 
-    const sunLonRaw = extractLongitude(sunR);
-    const moonLonRaw = extractLongitude(moonR);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      return res.status(400).json({ error: 'Provide lat and lng query params, e.g. ?lat=-34.9285&lng=138.6007&hsys=P' });
+    }
 
-    const sunDeg = sunLonRaw != null ? degNorm(sunLonRaw) : null;
-    const moonDeg = moonLonRaw != null ? degNorm(moonLonRaw) : null;
+    if (!HOUSES_EX) {
+      return res.status(500).json({ error: 'houses_ex not available on this sweph build' });
+    }
 
-    return res.status(200).json({
+    // Swiss expects: (tjd_ut, iflag, geolat, geolon, hsys)
+    const iflag = SE.FLG_SWIEPH;
+    const hres = HOUSES_EX(jd_ut, iflag, lat, lon, hsys);
+
+    let cusps: number[] | undefined;
+    let asc: number | undefined;
+    let mc: number | undefined;
+
+    if (hres && typeof hres === 'object') {
+      // Common shapes
+      cusps =
+        (hres as any).houseCusps ||
+        (hres as any).cusps ||
+        (hres as any).houses ||
+        (Array.isArray(hres) ? hres[0] : undefined);
+
+      asc =
+        (hres as any).ascendant ?? (hres as any).asc ?? (Array.isArray(hres) ? hres[1] : undefined);
+
+      mc =
+        (hres as any).mc ?? (hres as any).MC ?? (Array.isArray(hres) ? hres[2] : undefined);
+    }
+
+    const out: any = {
       success: true,
       jd_ut,
-      sun: sunDeg != null ? { degree: sunDeg, sign: signName(sunDeg) } : { degree: null },
-      moon: moonDeg != null ? { degree: moonDeg, sign: signName(moonDeg) } : { degree: null },
-      debug: {
-        sun: sunR,
-        moon: moonR
-      }
-    });
+      input: { lat, lon, hsys, iflag },
+      houses: Array.isArray(cusps)
+        ? cusps.map((c) => ({ degree: degNorm(c), sign: signName(c) }))
+        : null,
+      angles: {
+        asc: asc != null ? { degree: degNorm(asc), sign: signName(asc) } : null,
+        mc:  mc  != null ? { degree: degNorm(mc),  sign: signName(mc)  } : null
+      },
+      debug: hres
+    };
+
+    return res.status(200).json(out);
   } catch (e: any) {
     console.error(e);
     return res.status(500).json({ error: String(e?.message || e) });
