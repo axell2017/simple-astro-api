@@ -1,7 +1,7 @@
 // api/positions.ts
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import path from 'path';
-import sweph from 'sweph';
+import * as sweph from 'sweph';
 
 type Angle = { degree: number; sign: string };
 type Planet = { name: string; degree: number; sign: string; house?: number; retro?: boolean };
@@ -28,14 +28,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: 'Missing date, time, lat, or lng' });
     }
 
-    // Point Swiss Ephemeris to bundled data (included via vercel.json)
+    // Ensure Swiss Ephemeris data files are found
     const ephPath = path.join(process.cwd(), 'functions', 'ephemeris');
     try { sweph.swe_set_ephe_path(ephPath); } catch {}
 
     const [y, m, d] = date.split('-').map(Number);
     const [hh, mm, ss = '00'] = time.split(':');
     const h = Number(hh), min = Number(mm), sec = Number(ss);
-    const jd_ut = sweph.swe_julday(y, m, d, h + min / 60 + Number(sec) / 3600); // assume UT for V1
+    const jd_ut = sweph.swe_julday(y, m, d, h + min / 60 + Number(sec) / 3600);
 
     const lat = Number(latStr);
     const lon = Number(lngStr);
@@ -62,7 +62,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       planets.push({ name: b.name, degree: deg, sign: signName(deg), retro: retrograde });
     }
 
-    // Houses and angles (Placidus by default; 'P')
+    // Houses and angles
     const houses: Houses = { cusps: [] };
     const hres = sweph.swe_houses_ex(jd_ut, lat, lon, house_system);
     if (hres?.houseCusps) {
