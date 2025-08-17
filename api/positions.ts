@@ -1,4 +1,4 @@
-// api/positions.ts - Planets + Houses with robust parsing and pure-JS JD
+// api/positions.ts - Planets + Houses with robust parsing, validation, and timezone support
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import path from 'path';
 
@@ -75,9 +75,20 @@ function extractLongitude(r: any): number | null {
   return null;
 }
 
+// Basic validators
+function isValidDateStr(s: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(s);
+}
+function isValidTimeStr(s: string) {
+  return /^\d{2}:\d{2}(:\d{2})?$/.test(s);
+}
+function clampHouseSystem(s: string) {
+  return (s || 'P').trim().toUpperCase().slice(0, 1);
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
-    // Ephemeris path (bundled under functions/ephemeris via vercel.json)
+    // Set ephemeris path (bundled via vercel.json -> functions/ephemeris)
     try {
       const ephPath = path.join(process.cwd(), 'functions', 'ephemeris');
       if (SET_EPHE_PATH) SET_EPHE_PATH(ephPath);
@@ -85,18 +96,48 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const q = req.query as Record<string, string>;
 
-    // Accept query params with sensible defaults (same as our tests)
-    const date = q.date || '1992-09-08';
-    const time = q.time || '12:00:00';
-    const lat = Number(q.lat ?? -34.9285);
-    const lon = Number(q.lng ?? 138.6007);
-    const hsys = (q.house_system || q.hsys || 'P').toUpperCase();
+    // Inputs with defaults
+    const date = (q.date && String(q.date)) || '1992-09-08';
+    const time = (q.time && String(q.time)) || '12:00:00';
+    const lat = q.lat != null ? Number(q.lat) : -34.9285;
+    const lon = q.lng != null ? Number(q.lng) : 138.6007;
+    const hsys = clampHouseSystem(q.house_system || q.hsys || 'P');
 
+    // Timezone handling: minutes offset from UTC. Positive for east of UTC.
+    // Example: Sydney AEST = +600, Los Angeles PDT = -420
+    const tzOffsetMinutes = q.tz_offset_minutes != null ? Number(q.tz_offset_minutes) : 0;
+
+    // Validate inputs
+    if (!isValidDateStr(date)) {
+      return res.status(400).json({ error: "Invalid 'date'. Use YYYY-MM-DD." });
+    }
+    if (!isValidTimeStr(time)) {
+      return res.status(400).json({ error: "Invalid 'time'. Use HH:MM or HH:MM:SS (24h)." });
+    }
+    if (!Number.isFinite(lat) || lat < -90 || lat > 90) {
+      return res.status(400).json({ error: "Invalid 'lat'. Range -90 to 90." });
+    }
+    if (!Number.isFinite(lon) || lon < -180 || lon > 180) {
+      return res.status(400).json({ error: "Invalid 'lng'. Range -180 to 180." });
+    }
+    if (!Number.isFinite(tzOffsetMinutes) || tzOffsetMinutes < -900 || tzOffsetMinutes > 900) {
+      return res.status(400).json({ error: "Invalid 'tz_offset_minutes'. Range -900 to 900." });
+    }
+    if (!/^[A-Z]$/.test(hsys)) {
+      return res.status(400).json({ error: "Invalid 'house_system' (or 'hsys'). Provide a single letter code like 'P'." });
+    }
+
+    // Parse date and time
     const [y, m, d] = date.split('-').map(Number);
     const [hh, mm, ss = '00'] = time.split(':');
     const h = Number(hh), min = Number(mm), sec = Number(ss);
-    const utHours = h + min / 60 + Number(sec) / 3600;
 
+    // Convert local time to UT using the offset (minutes east of UTC are positive)
+    // UT hours = localHours - (tzOffsetMinutes/60)
+    const localHours = h + min / 60 + Number(sec) / 3600;
+    const utHours = localHours - tzOffsetMinutes / 60;
+
+    // JD in UT
     const jd_ut = julianDay(y, m, d, utHours);
 
     // Planets
@@ -195,7 +236,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const out: Output = {
       success: true,
       jd_ut,
-      input: { date, time, lat, lon, hsys },
+      input: { date, time, lat, lon, hsys, tz_offset_minutes: tzOffsetMinutes },
       planets,
       houses,
       angles
