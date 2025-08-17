@@ -1,9 +1,10 @@
 // api/positions.ts
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import path from 'path';
-// Use CommonJS require so the native addon exports are available
+// Load sweph in a way that works whether it’s CJS or wrapped with a default
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const sweph: any = require('sweph');
+const swephMod = require('sweph');
+const sweph: any = swephMod && swephMod.default ? swephMod.default : swephMod;
 
 type Angle = { degree: number; sign: string };
 type Planet = { name: string; degree: number; sign: string; house?: number; retro?: boolean };
