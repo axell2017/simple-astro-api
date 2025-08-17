@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Coaler</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 16px; }
+    header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+    .avatar { width: 48px; height: 48px; border-radius: 50%; background: radial-gradient(circle at 30% 30%, #a78bfa, #4f46e5); }
+    h1 { font-size: 20px; margin: 0; }
+    .muted { color: #6b7280; font-size: 13px; }
+    .card { border: 1px solid #ccc; border-radius: 10px; padding: 12px; margin-bottom: 12px; }
+    .messages { border: 1px solid #ccc; border-radius: 10px; padding: 12px; height: 360px; overflow-y: auto; background: rgba(0,0,0,0.03); }
+    .msg { margin: 8px 0; }
+    .user { text-align: right; }
+    .bubble { display: inline-block; padding: 10px 12px; border-radius: 12px; max-width: 80%; }
+    .bubble.user { background: #4f46e5; color: white; }
+    .bubble.bot { background: #e5e7eb; color: #111827; }
+    form { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-top: 8px; }
+    input, button { padding: 10px; font-size: 14px; border: 1px solid #ccc; border-radius: 8px; }
+    button { background: #4f46e5; color: #fff; border: 0; cursor: pointer; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .small { font-size: 12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="avatar" aria-hidden="true"></div>
+    <div>
+      <h1>Coaler</h1>
+      <div class="muted">A gentle guide through your chart</div>
+    </div>
+  </header>
+
+  <div id="chartCard" class="card">
+    <div class="muted">Chart summary</div>
+    <div id="summary">Loading chart…</div>
+    <div id="whenwhere" class="small muted" style="margin-top:6px;"></div>
+  </div>
+
+  <div class="messages" id="messages" aria-live="polite"></div>
+
+  <form id="chatForm">
+    <input id="prompt" placeholder="Ask Coaler about your chart…" autocomplete="off" />
+    <button id="sendBtn" type="submit">Send</button>
+  </form>
+
+  <script>
+    const API_POSITIONS = '/api/positions';
+    const API_ORACLE = '/api/coaler';
+
+    // Read params from URL
+    const params = new URLSearchParams(location.search);
+    const input = {
+      date: params.get('date') || '',
+      time: params.get('time') || '',
+      lat: params.get('lat') || '',
+      lng: params.get('lng') || '',
+      house_system: (params.get('house_system') || params.get('hsys') || 'P').toUpperCase(),
+      tz_offset_minutes: params.get('tz_offset_minutes') || '0'
+    };
+
+    // UI helpers
+    const msgs = document.getElementById('messages');
+    function addMsg(text, who = 'bot') {
+      const div = document.createElement('div');
+      div.className = 'msg ' + (who === 'user' ? 'user' : 'bot');
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble ' + (who === 'user' ? 'user' : 'bot');
+      bubble.textContent = text;
+      div.appendChild(bubble);
+      msgs.appendChild(div);
+      msgs.scrollTop = msgs.scrollHeight;
+    }
+
+    function fmtDeg(x) { return typeof x === 'number' && isFinite(x) ? x.toFixed(2) + '°' : '-'; }
+    function summarize(out) {
+      try {
+        const sun = out.planets.find(p => p.name === 'Sun');
+        const moon = out.planets.find(p => p.name === 'Moon');
+        const asc = out.angles?.asc;
+        const bits = [];
+        if (sun) bits.push(`Sun ${fmtDeg(sun.degree)} ${sun.sign} (H${sun.house||'-'})`);
+        if (moon) bits.push(`Moon ${fmtDeg(moon.degree)} ${moon.sign} (H${moon.house||'-'})`);
+        if (asc) bits.push(`Asc ${fmtDeg(asc.degree)} ${asc.sign}`);
+        return bits.join(' • ');
+      } catch { return '—'; }
+    }
+
+    // Load chart
+    let chart;
+    (async function init() {
+      try {
+        const url = new URL(API_POSITIONS, location.origin);
+        Object.entries(input).forEach(([k,v]) => url.searchParams.set(k, v));
+        const r = await fetch(url.toString());
+        const data = await r.json();
+        if (!r.ok) throw new Error(data?.error || 'Failed to load chart');
+        chart = data;
+        document.getElementById('summary').textContent = summarize(chart);
+        document.getElementById('whenwhere').textContent =
+          `${chart.input.date} ${chart.input.time} (UTC offset ${chart.input.tz_offset_minutes} min)` +
+          ` • lat ${chart.input.lat}, lng ${chart.input.lon} • hsys ${chart.input.hsys}`;
+        addMsg('Welcome, seeker. I have reviewed your chart. What would you like to explore today?');
+      } catch (e) {
+        document.getElementById('summary').textContent = String(e.message || e);
+      }
+    })();
+
+    // Chat
+    document.getElementById('chatForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const inp = document.getElementById('prompt');
+      const text = inp.value.trim();
+      if (!text) return;
+      addMsg(text, 'user');
+      inp.value = '';
+      document.getElementById('sendBtn').disabled = true;
+      try {
+        const r = await fetch(API_ORACLE, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: text, chart })
+        });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data?.error || 'Coaler error');
+        addMsg(data.reply || '…');
+      } catch (e) {
+        addMsg(String(e.message || e));
+      } finally {
+        document.getElementById('sendBtn').disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
