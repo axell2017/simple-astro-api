@@ -1,0 +1,10 @@
+{
+  "functions": {
+    "api/*.ts": {
+      "includeFiles": "functions/ephemeris/**"
+    },
+    "api/*.js": {
+      "includeFiles": "functions/ephemeris/**"
+    }
+  }
+}
