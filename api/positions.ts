@@ -78,9 +78,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const h = Number(hh), min = Number(mm), sec = Number(ss);
     const utHours = h + min / 60 + Number(sec) / 3600;
 
-    const jd_ut = typeof JULDAY === 'function'
-      ? JULDAY(y, m, d, utHours)
-      : juldayFallback(y, m, d, utHours);
+// Build JD (UT). Some builds require gregflag as 5th arg.
+const utHours = h + min / 60 + Number(sec) / 3600;
+const jd_ut =
+  typeof JULDAY === 'function'
+    ? (JULDAY.length >= 5
+        ? JULDAY(y, m, d, utHours, true)    // gregflag=true for Gregorian calendar
+        : JULDAY(y, m, d, utHours))
+    : juldayFallback(y, m, d, utHours);
 
     const lat = Number(latStr);
     const lon = Number(lngStr);
