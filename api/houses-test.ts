@@ -70,18 +70,34 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let mc: number | undefined;
 
     if (hres && typeof hres === 'object') {
-      // Common shapes
-      cusps =
-        (hres as any).houseCusps ||
-        (hres as any).cusps ||
-        (hres as any).houses ||
-        (Array.isArray(hres) ? hres[0] : undefined);
+      // Handle shape: { flag, data: { houses: [...], points: [...] } }
+      if ((hres as any).data && typeof (hres as any).data === 'object') {
+        const data = (hres as any).data;
+        cusps = Array.isArray(data.houses) ? data.houses : undefined;
+        
+        // Points array typically: [asc, mc, ...]
+        if (Array.isArray(data.points) && data.points.length >= 2) {
+          asc = data.points[0];
+          mc = data.points[1];
+        }
+      }
+      
+      // Fallback to other common shapes
+      if (!cusps) {
+        cusps =
+          (hres as any).houseCusps ||
+          (hres as any).cusps ||
+          (hres as any).houses ||
+          (Array.isArray(hres) ? hres[0] : undefined);
+      }
 
-      asc =
-        (hres as any).ascendant ?? (hres as any).asc ?? (Array.isArray(hres) ? hres[1] : undefined);
-
-      mc =
-        (hres as any).mc ?? (hres as any).MC ?? (Array.isArray(hres) ? hres[2] : undefined);
+      if (asc == null) {
+        asc = (hres as any).ascendant ?? (hres as any).asc ?? (Array.isArray(hres) ? hres[1] : undefined);
+      }
+      
+      if (mc == null) {
+        mc = (hres as any).mc ?? (hres as any).MC ?? (Array.isArray(hres) ? hres[2] : undefined);
+      }
     }
 
     const out: any = {
