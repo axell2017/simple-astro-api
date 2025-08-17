@@ -1,9 +1,6 @@
 {
   "functions": {
-    "api/*.ts": {
-      "includeFiles": "functions/ephemeris/"
-    },
-    "api/*.js": {
+    "api/**/*.ts": {
       "includeFiles": "functions/ephemeris/**"
     }
   }
