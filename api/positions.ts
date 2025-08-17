@@ -6,7 +6,6 @@ const swephMod = require('sweph');
 const sweph: any = swephMod && swephMod.default ? swephMod.default : swephMod;
 
 // Compatibility shims (support both prefixed and non-prefixed builds)
-const JULDAY = typeof sweph.julday === 'function' ? sweph.julday : sweph.swe_julday;
 const CALC_UT = typeof sweph.calc_ut === 'function' ? sweph.calc_ut : sweph.swe_calc_ut;
 const HOUSES_EX = typeof sweph.houses_ex === 'function' ? sweph.houses_ex : sweph.swe_houses_ex;
 const SET_EPHE_PATH = typeof sweph.set_ephe_path === 'function' ? sweph.set_ephe_path : sweph.swe_set_ephe_path;
@@ -39,8 +38,8 @@ function signName(deg: number) {
 }
 function degNorm(x: number) { return ((x % 360) + 360) % 360; }
 
-// JD fallback if julday isn't present
-function juldayFallback(y: number, m: number, d: number, utHours: number) {
+// Pure JS Julian Day calculation (Gregorian calendar)
+function julianDay(y: number, m: number, d: number, utHours: number) {
   const a = Math.floor((14 - m) / 12);
   const y2 = y + 4800 - a;
   const m2 = m + 12 * a - 3;
@@ -75,21 +74,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const [y, m, d] = date.split('-').map(Number);
     const [hh, mm, ss = '00'] = time.split(':');
     const h = Number(hh), min = Number(mm), sec = Number(ss);
-
-    // Build JD (UT) robustly across builds
     const utHours = h + min / 60 + Number(sec) / 3600;
-    let jd_ut: number;
-    if (typeof JULDAY === 'function') {
-      try {
-        // Prefer 5-arg form: (year, month, day, hour, gregflag)
-        jd_ut = JULDAY(y, m, d, utHours, true);
-      } catch (_) {
-        // Fallback to 4-arg form if this build doesn't accept gregflag
-        jd_ut = JULDAY(y, m, d, utHours);
-      }
-    } else {
-      jd_ut = juldayFallback(y, m, d, utHours);
-    }
+
+    // Use pure JS Julian Day calculation to avoid native julday issues
+    const jd_ut = julianDay(y, m, d, utHours);
 
     const lat = Number(latStr);
     const lon = Number(lngStr);
