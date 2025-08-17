@@ -1,7 +1,9 @@
 // api/positions.ts
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import path from 'path';
-import * as sweph from 'sweph';
+// Use CommonJS require so the native addon exports are available
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const sweph: any = require('sweph');
 
 type Angle = { degree: number; sign: string };
 type Planet = { name: string; degree: number; sign: string; house?: number; retro?: boolean };
@@ -28,7 +30,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: 'Missing date, time, lat, or lng' });
     }
 
-    // Ensure Swiss Ephemeris data files are found
+    // Ensure Swiss Ephemeris data files are found (bundled via vercel.json includeFiles)
     const ephPath = path.join(process.cwd(), 'functions', 'ephemeris');
     try { sweph.swe_set_ephe_path(ephPath); } catch {}
 
