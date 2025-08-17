@@ -39,7 +39,7 @@ function signName(deg: number) {
 }
 function degNorm(x: number) { return ((x % 360) + 360) % 360; }
 
-// JD fallback if julday isn’t present
+// JD fallback if julday isn't present
 function juldayFallback(y: number, m: number, d: number, utHours: number) {
   const a = Math.floor((14 - m) / 12);
   const y2 = y + 4800 - a;
@@ -76,14 +76,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const [hh, mm, ss = '00'] = time.split(':');
     const h = Number(hh), min = Number(mm), sec = Number(ss);
 
-    // Build JD (UT). Some builds require gregflag as 5th arg.
+    // Build JD (UT) robustly across builds
     const utHours = h + min / 60 + Number(sec) / 3600;
-    const jd_ut =
-      typeof JULDAY === 'function'
-        ? (JULDAY.length >= 5
-            ? JULDAY(y, m, d, utHours, true) // gregflag=true for Gregorian calendar
-            : JULDAY(y, m, d, utHours))
-        : juldayFallback(y, m, d, utHours);
+    let jd_ut: number;
+    if (typeof JULDAY === 'function') {
+      try {
+        // Prefer 5-arg form: (year, month, day, hour, gregflag)
+        jd_ut = JULDAY(y, m, d, utHours, true);
+      } catch (_) {
+        // Fallback to 4-arg form if this build doesn't accept gregflag
+        jd_ut = JULDAY(y, m, d, utHours);
+      }
+    } else {
+      jd_ut = juldayFallback(y, m, d, utHours);
+    }
 
     const lat = Number(latStr);
     const lon = Number(lngStr);
