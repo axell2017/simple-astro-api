@@ -33,6 +33,12 @@ function julianDay(y: number, m: number, d: number, utHours: number) {
 
 function extractLongitude(r: any): number | null {
   if (!r) return null;
+
+  // New: handle shape { flag, error, data: [lon, lat, dist, ...] }
+  if (r && typeof r === 'object' && Array.isArray((r as any).data) && Number.isFinite((r as any).data[0])) {
+    return (r as any).data[0] as number;
+  }
+
   if (typeof r === 'object') {
     if ('longitude' in r && Number.isFinite((r as any).longitude)) return (r as any).longitude as number;
     if ('lon' in r && Number.isFinite((r as any).lon)) return (r as any).lon as number;
@@ -58,9 +64,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const sunR = CALC_UT(jd_ut, SE.SUN, flags);
     const moonR = CALC_UT(jd_ut, SE.MOON, flags);
 
-    const sunRaw = typeof sunR === 'object' ? sunR : Array.isArray(sunR) ? [...sunR] : sunR;
-    const moonRaw = typeof moonR === 'object' ? moonR : Array.isArray(moonR) ? [...moonR] : moonR;
-
     const sunLonRaw = extractLongitude(sunR);
     const moonLonRaw = extractLongitude(moonR);
 
@@ -73,8 +76,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       sun: sunDeg != null ? { degree: sunDeg, sign: signName(sunDeg) } : { degree: null },
       moon: moonDeg != null ? { degree: moonDeg, sign: signName(moonDeg) } : { degree: null },
       debug: {
-        sun: typeof sunRaw === 'object' ? sunRaw : { value: sunRaw },
-        moon: typeof moonRaw === 'object' ? moonRaw : { value: moonRaw }
+        sun: sunR,
+        moon: moonR
       }
     });
   } catch (e: any) {
