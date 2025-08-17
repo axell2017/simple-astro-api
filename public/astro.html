@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Astro Positions</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 16px; }
+    h1 { font-size: 20px; margin: 0 0 12px; }
+    form { display: grid; gap: 8px; max-width: 520px; margin-bottom: 16px; }
+    label { display: grid; gap: 4px; font-weight: 600; }
+    input, select, button { padding: 10px; font-size: 14px; border: 1px solid #ccc; border-radius: 8px; }
+    button { background: #4f46e5; color: #fff; border: 0; cursor: pointer; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .cards { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+    .card { border: 1px solid #ccc; border-radius: 10px; padding: 12px; }
+    table { border-collapse: collapse; width: 100%; font-size: 14px; }
+    th, td { padding: 6px 8px; border-bottom: 1px solid #e5e7eb; text-align: left; }
+    .muted { color: #6b7280; font-size: 12px; }
+    .error { color: #dc2626; margin-top: 8px; }
+    pre { background: #0b1020; color: #e5e7eb; padding: 12px; border-radius: 8px; overflow: auto; }
+  </style>
+</head>
+<body>
+  <h1>Astrology Positions</h1>
+
+  <form id="astroForm">
+    <div class="row">
+      <label>
+        Date (YYYY-MM-DD)
+        <input type="date" id="date" required />
+      </label>
+      <label>
+        Time (HH:MM)
+        <input type="time" id="time" step="60" required />
+      </label>
+    </div>
+
+    <div class="row">
+      <label>
+        Latitude (e.g. -34.9285)
+        <input type="number" id="lat" step="0.0001" required />
+      </label>
+      <label>
+        Longitude (e.g. 138.6007)
+        <input type="number" id="lng" step="0.0001" required />
+      </label>
+    </div>
+
+    <div class="row">
+      <label>
+        House System
+        <select id="hsys">
+          <option value="P" selected>Placidus (P)</option>
+          <option value="K">Koch (K)</option>
+          <option value="W">Whole Sign (W)</option>
+          <option value="R">Regiomontanus (R)</option>
+          <option value="C">Campanus (C)</option>
+          <option value="E">Equal (E)</option>
+          <option value="H">Porphyry (H)</option>
+        </select>
+      </label>
+      <label>
+        Timezone Offset (minutes, auto)
+        <input type="number" id="tz" readonly />
+        <div class="muted">Minutes east of UTC (auto-filled). Example: Sydney +600, LA -420.</div>
+      </label>
+    </div>
+
+    <button id="submitBtn" type="submit">Calculate</button>
+    <div id="error" class="error"></div>
+  </form>
+
+  <div id="results" style="display:none;">
+    <div class="cards">
+      <div class="card">
+        <div class="muted">Ascendant</div>
+        <div id="asc"></div>
+      </div>
+      <div class="card">
+        <div class="muted">Midheaven (MC)</div>
+        <div id="mc"></div>
+      </div>
+    </div>
+
+    <h2>Planets</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Body</th>
+          <th>Position</th>
+          <th>Sign</th>
+          <th>House</th>
+          <th>Motion</th>
+        </tr>
+      </thead>
+      <tbody id="planets"></tbody>
+    </table>
+
+    <h2>Houses</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>House</th>
+          <th>Degree</th>
+          <th>Sign</th>
+        </tr>
+      </thead>
+      <tbody id="houses"></tbody>
+    </table>
+
+    <details>
+      <summary>Raw JSON</summary>
+      <pre id="raw"></pre>
+    </details>
+  </div>
+
+  <script>
+    const API_BASE = 'https://simple-astro-api.vercel.app/api/positions';
+
+    // Prefill with an example and local tz offset
+    (function initDefaults() {
+      const d = document.getElementById('date');
+      const t = document.getElementById('time');
+      const lat = document.getElementById('lat');
+      const lng = document.getElementById('lng');
+      const tz = document.getElementById('tz');
+
+      const today = new Date();
+      const yyyy = today.getFullYear();
+      const mm = String(today.getMonth() + 1).padStart(2, '0');
+      const dd = String(today.getDate()).padStart(2, '0');
+
+      d.value = `${yyyy}-${mm}-${dd}`;
+      t.value = '12:00';
+      lat.value = '-34.9285';
+      lng.value = '138.6007';
+
+      // Browser offset: minutes west of UTC; we need minutes east of UTC
+      tz.value = String(-new Date().getTimezoneOffset());
+    })();
+
+    function fmtDeg(x) {
+      if (typeof x !== 'number' || !isFinite(x)) return '-';
+      // Keep one decimal; optionally show 00' if you want D°MM'
+      return x.toFixed(2) + '°';
+    }
+
+    function setLoading(loading) {
+      const btn = document.getElementById('submitBtn');
+      btn.disabled = loading;
+      btn.textContent = loading ? 'Calculating…' : 'Calculate';
+    }
+
+    function render(out) {
+      document.getElementById('results').style.display = 'block';
+      document.getElementById('raw').textContent = JSON.stringify(out, null, 2);
+
+      const ascEl = document.getElementById('asc');
+      const mcEl = document.getElementById('mc');
+      ascEl.textContent = out?.angles?.asc ? `${fmtDeg(out.angles.asc.degree)} ${out.angles.asc.sign}` : '-';
+      mcEl.textContent = out?.angles?.mc ? `${fmtDeg(out.angles.mc.degree)} ${out.angles.mc.sign}` : '-';
+
+      const pBody = document.getElementById('planets');
+      pBody.innerHTML = '';
+      (out.planets || []).forEach(p => {
+        const tr = document.createElement('tr');
+        const motion = p.retro ? 'R' : 'D';
+        tr.innerHTML = `
+          <td>${p.name}</td>
+          <td>${fmtDeg(p.degree)}</td>
+          <td>${p.sign || '-'}</td>
+          <td>${p.house || '-'}</td>
+          <td>${motion}</td>
+        `;
+        pBody.appendChild(tr);
+      });
+
+      const hBody = document.getElementById('houses');
+      hBody.innerHTML = '';
+      (out.houses?.cusps || []).forEach((h, i) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${i + 1}</td>
+          <td>${fmtDeg(h.degree)}</td>
+          <td>${h.sign}</td>
+        `;
+        hBody.appendChild(tr);
+      });
+    }
+
+    document.getElementById('astroForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      document.getElementById('error').textContent = '';
+      setLoading(true);
+      try {
+        const date = document.getElementById('date').value;
+        const time = document.getElementById('time').value + ':00';
+        const lat = document.getElementById('lat').value;
+        const lng = document.getElementById('lng').value;
+        const hsys = document.getElementById('hsys').value;
+        const tz = document.getElementById('tz').value;
+
+        const url = new URL(API_BASE);
+        url.searchParams.set('date', date);
+        url.searchParams.set('time', time);
+        url.searchParams.set('lat', lat);
+        url.searchParams.set('lng', lng);
+        url.searchParams.set('house_system', hsys);
+        url.searchParams.set('tz_offset_minutes', tz);
+
+        const resp = await fetch(url.toString(), { method: 'GET' });
+        const data = await resp.json();
+
+        if (!resp.ok) {
+          throw new Error(data?.error || 'Request failed');
+        }
+        render(data);
+      } catch (err) {
+        document.getElementById('error').textContent = String(err.message || err);
+      } finally {
+        setLoading(false);
+      }
+    });
+  </script>
+</body>
+</html>
